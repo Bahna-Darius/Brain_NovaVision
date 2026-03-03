@@ -1,0 +1,1 @@
+from .tsd_yolov8 import TrafficSignDetectorYOLOv8

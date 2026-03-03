@@ -1,45 +1,96 @@
-import os
+import time
 from pathlib import Path
+import numpy as np
+import cv2
+
 
 class TrafficSignDetectorYOLOv8:
     """
-    Small wrapper around Ultralytics YOLOv8.
-    Returns detections as a list of dicts:
-      { "cls": int, "conf": float, "xyxy": (x1,y1,x2,y2) }
+    YOLOv8 detector wrapper for BFMC.
+    - Uses Ultralytics YOLO on CPU (Pi 5)
+    - Returns detections using CLASS NAMES (not IDs)
+    - API: detect(frame_bgr) -> list[dict]
     """
 
-    def __init__(self, model_path: str, conf: float = 0.4, imgsz: int = 416):
-        self.conf = conf
-        self.imgsz = imgsz
+    def __init__(self, model_path: str, conf: float = 0.40, imgsz: int = 416, iou: float = 0.45, max_det: int = 20):
+        self.model_path = str(model_path)
+        self.conf = float(conf)
+        self.imgsz = int(imgsz)
+        self.iou = float(iou)
+        self.max_det = int(max_det)
 
-        # Lazy import so Brain can still start even if ultralytics not installed
+        self.enabled = True
+        self.model = None
+        self.names = {}
+
         try:
             from ultralytics import YOLO
         except Exception as e:
-            raise RuntimeError(
-                "Ultralytics is not installed. Install with: pip install ultralytics"
-            ) from e
+            print(f"[TrafficSigns] Ultralytics import failed -> disabled. Err: {e}")
+            self.enabled = False
+            return
 
-        mp = Path(model_path)
-        if not mp.exists():
-            raise FileNotFoundError(f"Model not found: {mp}")
+        p = Path(self.model_path)
+        if not p.exists():
+            print(f"[TrafficSigns] Model not found: {p} -> disabled.")
+            self.enabled = False
+            return
 
-        self.model = YOLO(str(mp))
+        try:
+            self.model = YOLO(self.model_path)
+            self.names = dict(getattr(self.model, "names", {})) or {}
+            if not self.names:
+                print("[TrafficSigns] WARNING: model.names empty; will fallback to class_{id}.")
+        except Exception as e:
+            print(f"[TrafficSigns] Model load failed -> disabled. Err: {e}")
+            self.enabled = False
+            self.model = None
 
-    def detect(self, bgr_frame):
+    def detect(self, frame_bgr: np.ndarray):
         """
-        bgr_frame: numpy array (H,W,3) in BGR (OpenCV)
+        Returns list of dicts:
+          [{"name": str, "conf": float, "bbox": [x1,y1,x2,y2], "cls": int}, ...]
         """
-        results = self.model(bgr_frame, imgsz=self.imgsz, conf=self.conf, verbose=False)[0]
+        if not self.enabled or self.model is None:
+            return []
 
-        detections = []
-        if results.boxes is None:
-            return detections
+        # Ultralytics expects RGB
+        frame_rgb = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)
 
-        for box in results.boxes:
-            cls = int(box.cls[0])
-            conf = float(box.conf[0])
-            x1, y1, x2, y2 = map(int, box.xyxy[0])
-            detections.append({"cls": cls, "conf": conf, "xyxy": (x1, y1, x2, y2)})
+        try:
+            results = self.model.predict(
+                source=frame_rgb,
+                imgsz=self.imgsz,
+                conf=self.conf,
+                iou=self.iou,
+                max_det=self.max_det,
+                device="cpu",
+                verbose=False,
+            )
+        except Exception as e:
+            print(f"[TrafficSigns] predict() failed -> empty. Err: {e}")
+            return []
 
-        return detections
+        r0 = results[0]
+        boxes = getattr(r0, "boxes", None)
+        if boxes is None or len(boxes) == 0:
+            return []
+
+        xyxy = boxes.xyxy.cpu().numpy()
+        confs = boxes.conf.cpu().numpy()
+        clss = boxes.cls.cpu().numpy().astype(int)
+
+        dets = []
+        for (x1, y1, x2, y2), c, cls_id in zip(xyxy, confs, clss):
+            name = self.names.get(int(cls_id), f"class_{int(cls_id)}")
+            dets.append(
+                {
+                    "name": str(name),
+                    "conf": float(c),
+                    "bbox": [int(x1), int(y1), int(x2), int(y2)],
+                    "cls": int(cls_id),  # păstrăm și cls pt debug, dar logica o facem pe "name"
+                }
+            )
+
+        return dets
+
