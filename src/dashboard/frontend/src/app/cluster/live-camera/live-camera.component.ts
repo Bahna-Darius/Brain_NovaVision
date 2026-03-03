@@ -53,7 +53,7 @@ export class LiveCameraComponent {
 
     this.cameraSubscription = this.webSocketService.receiveCamera().subscribe(
       (message) => {
-        this.image = `data:image/png;base64,${message.value}`;
+        this.image = `data:image/jpeg;base64,${message.value}`;
         this.loading = false;
         // Reset the loading timeout on each new image
         if (this.loadingTimeout) {
@@ -62,7 +62,7 @@ export class LiveCameraComponent {
         this.loadingTimeout = setTimeout(() => {
           this.loading = true;
           this.image = this.createBlackImage();
-        }, 2000);
+        }, 5000);
       },
       (error) => {
         this.image = this.createBlackImage();
@@ -79,7 +79,7 @@ export class LiveCameraComponent {
     if (this.loadingTimeout) {
       clearTimeout(this.loadingTimeout);
     }
-    this.webSocketService.disconnectSocket();
+    // this.webSocketService.disconnectSocket();
   }
 
   createBlackImage(): string {

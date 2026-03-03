@@ -6,7 +6,9 @@ __pycache__
 temp/serial_history.log
 src/dashboard/frontend/.angular/cache
 src/dashboard/frontend/src/app/webSocket/web-socket.service.ts
-src/dashboard/frontend/src/app/console/
+src/algorithms/TrafficSigns/models/tsd_best.pt
+model
+src/data
 
 # ======================
 # Python
@@ -47,14 +49,3 @@ src/dashboard/frontend/dist/
 # ======================
 tmp/
 temp/
-# ======================
-# Models YOLO
-# ======================
-*.pt
-src/algorithms/TrafficLight/weights/
-
-# ======================
-# Temporary Media
-# ======================
-*.avi
-*.jpg

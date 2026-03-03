@@ -66,7 +66,7 @@ from src.utils.messages.messageHandlerSender import messageHandlerSender
 SHAPED_TIMEOUT_S = 0.6  # seconds
 ACTUATOR_SEND_HZ = 20
 ACTUATOR_PERIOD_S = 1.0 / ACTUATOR_SEND_HZ
-STEER_SPEED_GAP_S = 0.3   # 10ms gap (tune 0.005–0.02)
+STEER_SPEED_GAP_S = 0.015   # 10ms gap (tune 0.005–0.02)
 
 
 class threadWrite(ThreadWithStop):

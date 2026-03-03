@@ -57,8 +57,12 @@ def age_ms(name: str) -> str:
 
 
 # ----------------------------- regex patterns -----------------------------
-
-RE_PERCEPTION = re.compile(r"\[Perception\]\s+tick=(\d+)\s+lane_steer=([^\s]+)\s+lane_conf=([^\s]+)(?:\s+tl=([^\s]+)\s+tl_conf=([^\s]+))?")
+RE_PERCEPTION = re.compile(
+    r"\[Perception\]\s+tick=(\d+)\s+lane_steer=([^\s]+)\s+lane_conf=([^\s]+)"
+    r"(?:\s+TL=([^\s]+)\s+TL_conf=([^\s]+))?"
+    r"(?:\s+flags=(\{.*\}))?"
+    r"(?:\s+top=(\[[^\]]*\]))?"
+)
 RE_CONTROLUNIT = re.compile(r"\[ControlUnit\]\s+tick=(\d+)\s+conf=([0-9.]+)\s+desired_speed=([-0-9]+)\s+desired_steer=([-0-9]+)")
 RE_SHAPER = re.compile(
     r"\[Shaper\]\s+tick=(\d+)\s+desired=\(([-0-9]+),([-0-9]+)\)\s+out=\(([-0-9]+),([-0-9]+)\)\s+stop=(True|False)"
