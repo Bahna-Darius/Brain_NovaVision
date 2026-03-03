@@ -124,13 +124,19 @@ class processDashboard(WorkerProcess):
         """Get the path for table state file."""
         base_path = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
         return os.path.join(base_path, 'src', 'utils', 'table_state.json')
-    
 
     def _initialize_messages(self):
         """Initialize message handling systems."""
         self.get_name_and_vals()
         self.messagesAndVals.pop("mainCamera", None)
+        self.messagesAndVals.pop("serialCameraRaw", None)
         self.messagesAndVals.pop("Semaphores", None)
+        self.messagesAndVals.pop("PerceptionContext", None)
+        self.messagesAndVals.pop("DesiredSpeed", None)
+        self.messagesAndVals.pop("DesiredSteer", None)
+        self.messagesAndVals.pop("SafetyOverride", None)
+        self.messagesAndVals.pop("ShapedSpeedMotor", None)
+        self.messagesAndVals.pop("ShapedSteerMotor", None)
         self.subscribe()
     
 
@@ -341,7 +347,6 @@ class processDashboard(WorkerProcess):
             self.heartbeat_received = False
             eventlet.spawn_after(self.heartbeat_time_between_heartbeats, self.send_heartbeat)
 
-
     def send_continuous_messages(self):
         """Process and send subscriber messages to the frontend."""
         if not self.running:
@@ -353,9 +358,21 @@ class processDashboard(WorkerProcess):
                 if msg == "SerialConnectionState":
                     self.serialConnected = resp
 
-                self.socketio.emit(msg, {"value": resp})
+                # daca nu exista sesiune activa, nu trimitem video inutil
+                if self.sessionActive and self.activeUser is not None:
+                    self.socketio.emit(msg, {"value": resp}, room=self.activeUser)
+                else:
+                    if msg != "serialCamera":
+                        self.socketio.emit(msg, {"value": resp})
+
                 if self.debugging:
-                    self.logger.info(f"{msg}: {resp}")
+                    if msg in ("serialCamera", "serialCameraRaw"):
+                        try:
+                            self.logger.info(f"{msg}: <payload length={len(resp)}>")
+                        except Exception:
+                            self.logger.info(f"{msg}: <payload>")
+                    else:
+                        self.logger.info(f"{msg}: {resp}")
 
         eventlet.spawn_after(0.1, self.send_continuous_messages)
 

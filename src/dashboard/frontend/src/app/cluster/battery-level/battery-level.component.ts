@@ -85,7 +85,7 @@ export class BatteryLevelComponent {
     if (this.klSubscription) {
       this.klSubscription.unsubscribe();
     }
-    this.webSocketService.disconnectSocket();
+    // this.webSocketService.disconnectSocket();
   }
 
   updateNeedle(): void {

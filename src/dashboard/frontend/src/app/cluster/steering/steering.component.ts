@@ -77,6 +77,6 @@ export class SteeringComponent {
       this.steerLimitsSubscription.unsubscribe();
     }
 
-    this.webSocketService.disconnectSocket();
+    // this.webSocketService.disconnectSocket();
   }
 }
