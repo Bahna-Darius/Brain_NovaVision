@@ -54,14 +54,12 @@ class threadControlUnit(threading.Thread):
             if stateMsg is not None:
                 self.current_mode = stateMsg
 
+            ctx = self.ctxSub.receive()
+            if isinstance(ctx, dict):
+                self._last_ctx = ctx
+                self._last_ctx_time = time.time()
+
             if self.current_mode == "AUTO":
-                ctx = self.ctxSub.receive()
-
-                # ✅ NovaVision: cache last context instead of STOP-spamming
-                if isinstance(ctx, dict):
-                    self._last_ctx = ctx
-                    self._last_ctx_time = time.time()
-
                 # Use cached context
                 self._auto_from_context(self._last_ctx, self._last_ctx_time)
 
@@ -80,7 +78,9 @@ class threadControlUnit(threading.Thread):
             return
 
         lane = ctx.get("lane") or {}
-        steer = int(lane.get("steer", 0))
+        raw_steer = int(lane.get("steer", 0))
+        steer = int(raw_steer * 10)
+
         conf = float(lane.get("confidence", 0.0))
 
         if conf < CFG.MIN_LANE_CONFIDENCE:

@@ -85,7 +85,6 @@ if platform.machine() == 'x86_64':
 
 # from src.algorithms.LaneAssist.processLaneAssist import processLaneAssist
 # from src.algorithms.autoForward.threepointsTurn import process3PointsTurn
-from src.algorithms.TrafficSigns.processTrafficSigns import processTrafficSigns
 
 # ------ New component imports ends here ------#
 
@@ -191,19 +190,11 @@ allProcesses.insert(1, processCommandShaperInst)  ### New process 22.01.2026
 allProcesses.insert(1, processSafetyGuardInst)    ### New process 23.01.2026
 
 # ------ New component initialize starts here ------#
-# LaneAssist_ready = Event()
-# processLaneAssist = processLaneAssist(queueList, logging, LaneAssist_ready, debugging = False)
-# allProcesses.insert(0, processLaneAssist)
-
-# three_points_ready = Event()
-# process3PointsTurnProc = process3PointsTurn(queueList, logging, three_points_ready, debugging=True)
-#
-# allProcesses.append(process3PointsTurnProc)
-# allEvents.append(three_points_ready)
-
 # Initializing traffic sign detection
-traffic_signs_ready = Event()
-processTrafficSignsInst = None  # IMPORTANT: dynamic start/stop
+
+# traffic_signs_ready = Event()
+# processTrafficSignsInst = None  # IMPORTANT: dynamic start/stop
+
 # ------ New component initialize ends here ------#
 
 # ===================================== START PROCESSES ==================================

@@ -31,9 +31,9 @@ import threading
 import base64
 import picamera2
 import time
+import os
 
 from src.utils.messages.allMessages import (
-    mainCamera,
     serialCamera,
     Recording,
     Record,
@@ -62,13 +62,20 @@ class threadCamera(ThreadWithStop):
         self.queuesList = queuesList
         self.logger = logger
         self.debugger = debugger
-        self.frame_rate = 5
+        self.frame_rate = 10
+        self.PUBLISH_HZ = self.frame_rate
         self.recording = False
 
         self.video_writer = ""
+        self._next_frame_deadline = 0.0
+
+        self.dashboard_stream_enabled = True
+        self.perception_stream_enabled = True
+        self.dashboard_stream_size = (1024, 576)
+        self.perception_stream_size = (512, 270)
+        self.record_stream_size = (1280, 720)
 
         self.recordingSender = messageHandlerSender(self.queuesList, Recording)
-        self.mainCameraSender = messageHandlerSender(self.queuesList, mainCamera)
         self.serialCameraSender = messageHandlerSender(self.queuesList, serialCamera)
         self.serialCameraRawSender = messageHandlerSender(self.queuesList, serialCameraRaw)
 
@@ -84,7 +91,8 @@ class threadCamera(ThreadWithStop):
         # - Controlled JPEG quality (stable bandwidth)
         # - Matches your newer camera thread behavior
         #####################################################
-        self.encode_param = [int(cv2.IMWRITE_JPEG_QUALITY), 65]
+        self.dashboard_encode_param = [int(cv2.IMWRITE_JPEG_QUALITY), 65]
+        self.perception_encode_param = [int(cv2.IMWRITE_JPEG_QUALITY), 55]
 
         self.subscribe()
         self._init_camera()
@@ -111,6 +119,9 @@ class threadCamera(ThreadWithStop):
         """This function will run while the running flag is True.
         It captures the image from camera and make the required modifies
         and then it send the data to process gateway."""
+        # if camera is not available, skip processing
+        start = time.time()
+
         # if camera is not available, skip processing
         if self.camera is None:
             time.sleep(0.1)
@@ -140,38 +151,57 @@ class threadCamera(ThreadWithStop):
                         "output_video" + str(time.time()) + ".avi",
                         fourcc,
                         self.frame_rate,
-                        (2048, 1080),
+                        self.record_stream_size,
                     )
 
         except Exception as e:
             print(f"\033[1;97m[ Camera ] :\033[0m \033[1;91mERROR\033[0m - {e}")
 
         try:
-            mainRequest = self.camera.capture_array("main")
-            serialRequest = self.camera.capture_array(
-                "lores")  # Will capture an array that can be used by OpenCV library
+            # Always capture lores (for perception)
+            now = time.time()
+            if now < self._next_frame_deadline:
+                time.sleep(min(0.005, self._next_frame_deadline - now))
+                return
+            self._next_frame_deadline = now + (1.0 / float(self.frame_rate))
 
-            if self.recording == True:
-                self.video_writer.write(mainRequest)  # type: ignore
+            # Capture ONLY the low-resolution stream used for transport.
+            stream_request = self.camera.capture_array("lores")
 
-            serialRequest = cv2.cvtColor(serialRequest, cv2.COLOR_YUV2BGR_I420)  # type: ignore
+            # Capture main ONLY if recording is enabled.
+            main_request = None
+            if self.recording is True:
+                main_request = self.camera.capture_array("main")
+                self.video_writer.write(main_request)  # type: ignore
 
-            ################ NovaVision 26.01.2026 ###############
-            # NEW ELEMENT:
-            # - Use controlled JPEG quality (same as newer thread)
-            # - Keeps transport stable and predictable
-            #####################################################
-            _, mainEncodedImg = cv2.imencode(".jpg", mainRequest, self.encode_param)  # type: ignore
-            _, serialEncodedImg = cv2.imencode(".jpg", serialRequest, self.encode_param)  # type: ignore
-
-            mainEncodedImageData = base64.b64encode(mainEncodedImg).decode("utf-8")  # type: ignore
-            serialEncodedImageData = base64.b64encode(serialEncodedImg).decode("utf-8")  # type: ignore
+            stream_request = cv2.cvtColor(stream_request, cv2.COLOR_YUV2BGR_I420)  # type: ignore
 
             if self._blocker.is_set():
                 return
 
-            self.mainCameraSender.send(mainEncodedImageData)
-            self.serialCameraRawSender.send(serialEncodedImageData)
+            if self.dashboard_stream_enabled:
+                ok_dash, dashboard_encoded_img = cv2.imencode(".jpg", stream_request,
+                                                              self.dashboard_encode_param)  # type: ignore
+                if ok_dash:
+                    dashboard_encoded_image_data = base64.b64encode(dashboard_encoded_img).decode(
+                        "utf-8")  # type: ignore
+                    self.serialCameraSender.send(dashboard_encoded_image_data)
+
+            if self.perception_stream_enabled:
+                perception_frame = cv2.resize(stream_request, self.perception_stream_size, interpolation=cv2.INTER_AREA)
+                ok_perc, perception_encoded_img = cv2.imencode(".jpg", perception_frame,
+                                                               self.perception_encode_param)  # type: ignore
+                if ok_perc:
+                    perception_encoded_image_data = base64.b64encode(perception_encoded_img).decode(
+                        "utf-8")  # type: ignore
+                    self.serialCameraRawSender.send(perception_encoded_image_data)
+
+            # rate limit ca sa nu flood-uim gateway-ul
+            period = 1.0 / self.frame_rate if self.frame_rate > 0 else 0.0
+            if period > 0.0:
+                elapsed = time.time() - start
+                time.sleep(max(0.0, period - elapsed))
+
         except Exception as e:
             print(f"\033[1;97m[ Camera ] :\033[0m \033[1;91mERROR\033[0m - {e}")
 
@@ -215,8 +245,8 @@ class threadCamera(ThreadWithStop):
             config = self.camera.create_preview_configuration(
                 buffer_count=1,
                 queue=False,
-                main={"format": "RGB888", "size": (2048, 1080)},
-                lores={"size": (512, 270)},
+                main={"format": "RGB888", "size": self.record_stream_size},
+                lores={"size": self.dashboard_stream_size},
                 encode="lores",
             )
             self.camera.configure(config)  # type: ignore
