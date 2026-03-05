@@ -4,6 +4,8 @@ class LaneConfig:
     WIDTH = 512
     HEIGHT = 270
 
+    CENTER_BIAS_PX = 0
+
     # --- Lane Detection ---
     CUSTOM_FIND_PEAKS = True
     SLICES = 20  # 20 felii (ca în original) pentru linii mai fine
@@ -27,9 +29,9 @@ class LaneConfig:
     SQUARE_PULSES_ALLOWED_PEAKS_WIDTH_ERROR = 8
 
     # Validation
-    MIN_PEAKS_FOR_LANE = 2
+    MIN_PEAKS_FOR_LANE = 6
     OPTIMAL_PEAK_PERC = 0.3
-    MAX_ALLOWED_WIDTH_PERC = 0.20
+    MAX_ALLOWED_WIDTH_PERC = 0.12
 
     WEIGHT_FOR_WIDTH_DISTANCE = 0.3
     WEIGHT_FOR_EXPECTED_VALUE_DISTANCE = 0.7
