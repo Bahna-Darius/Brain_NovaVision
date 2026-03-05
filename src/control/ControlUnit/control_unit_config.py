@@ -30,7 +30,7 @@ class ControlUnitConfig:
 
     CROSSWALK_HOLD_S = 3.2
     CROSSWALK_MIN_AREA_RATIO = 0.05
-    DISABLE_STEER_ON_CROSSWALK = True
+    DISABLE_STEER_ON_CROSSWALK = False
 
     # ===== Loop / freshness =====
     LOOP_HZ = 30
