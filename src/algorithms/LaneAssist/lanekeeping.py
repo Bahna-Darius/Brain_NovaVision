@@ -11,6 +11,7 @@ class LaneKeeping:
 
         self.angle = 0.0
         self.last_angle = 0.0
+        self.last_filtered_angle = 0.0
 
         self.steer_value_list = []
         self.median_constant = LaneConfig.MEDIAN_CONSTANT
@@ -83,7 +84,7 @@ class LaneKeeping:
             if look_ahead_dist == 0: look_ahead_dist = 1  # Evitare div by 0
 
             angle = math.degrees(math.atan2(error, look_ahead_dist))
-            angle = angle * 1.5  # Gain
+            angle = angle * 1.2  # Gain
 
         self.last_angle = angle
         return angle, error, frame
@@ -111,7 +112,9 @@ class LaneKeeping:
         if len(desired) > 0:
             weighted_mean = np.average(desired, weights=self.get_error_weights)
             center = self.width / 2.0
-            error = weighted_mean - center
+            bias_px = LaneConfig.CENTER_BIAS_PX  # de ex +5 sau -5
+            error = (weighted_mean - (center + bias_px))
+
             return error
         return 0
 
@@ -129,5 +132,16 @@ class LaneKeeping:
         self.steer_value_list.insert(0, self.angle)
         if len(self.steer_value_list) > self.median_constant:
             self.steer_value_list.pop()
+
         if len(self.steer_value_list) > 0:
-            self.angle = np.mean(self.steer_value_list)
+            filtered = float(np.median(self.steer_value_list))
+
+            max_delta = 2.5
+            delta = filtered - self.last_filtered_angle
+            if delta > max_delta:
+                filtered = self.last_filtered_angle + max_delta
+            elif delta < -max_delta:
+                filtered = self.last_filtered_angle - max_delta
+
+            self.angle = filtered
+            self.last_filtered_angle = self.angle

@@ -10,11 +10,29 @@ class LaneDetection:
         self.height = LaneConfig.HEIGHT
         self.lk = lk_object
 
+        self.miss_left = 0
+        self.miss_right = 0
+        self.max_fallback_frames = 4
+
         # Parametri din Config
         self.slices = LaneConfig.SLICES
         self.print_lanes = LaneConfig.PRINT_LANES
         self.print_peaks = LaneConfig.PRINT_PEAKS
         self.print_lane_certainty = LaneConfig.PRINT_LANE_CERTAINTY
+
+        self.extreme_coef_second_deg = LaneConfig.EXTREME_COEF_SECOND_DEG
+        self.extreme_coef_first_deg = LaneConfig.EXTREME_COEF_FIRST_DEG
+
+        self.prev_left_coef = None
+        self.prev_right_coef = None
+
+        # toleranțe pentru “sanity”
+        self.expected_lane_width_px = 2 * LaneConfig.BOTTOM_WIDTH
+        self.width_tol_low = 0.80
+        self.width_tol_high = 1.25
+
+        # cât de mult ai voie să “sari” între frame-uri (la bottom)
+        self.max_jump_px = 35
 
         self.peaks_min_width = LaneConfig.PEAKS_MIN_WIDTH
         self.peaks_max_width = LaneConfig.PEAKS_MAX_WIDTH
@@ -50,6 +68,10 @@ class LaneDetection:
         left_coef = self.fit_polyfit(left)
         right_coef = self.fit_polyfit(right)
 
+        left_coef, right_coef, trust_l, trust_r = self._validate_and_smooth(
+            left_coef, right_coef, left, right
+        )
+
         # 4. Vizualizare Benzi (Desenăm liniile peste imagine)
         if self.print_lanes:
             self.visualize_lane(left_coef, src, (255, 128, 0))  # Cyan/Orange
@@ -59,10 +81,6 @@ class LaneDetection:
         if self.print_peaks:
             self.visualize_all_peaks(src, peaks)
             # self.visualize_peaks(src, left, right)
-
-        # 6. Actualizare lățimi pentru Lane Keeping (dacă există obiectul)
-        trust_l = left_coef is not None
-        trust_r = right_coef is not None
 
         if self.lk:
             self.update_b_and_top_through_coefs(left_coef, right_coef, trust_l, trust_r)
@@ -78,34 +96,107 @@ class LaneDetection:
             "trust_right": trust_r,
         }
 
-    def fit_polyfit(self, lane):
-        if len(lane) > 0:
-            # lane conține puncte [x, y]
-            degree = 1 if len(lane) > self.slices * 0.3 else 1
+    def fit_polyfit(self, lane, percentage_for_first_degree=0.3):
+        if len(lane) == 0:
+            return None
 
-            # vrem x = f(y) ca să fie compatibil cu desenul: x = a*y^2 + b*y + c
-            y_vals = [p[1] for p in lane]  # y (height)
-            x_vals = [p[0] for p in lane]  # x (position)
+        # x = f(y)
+        y_vals = [p[1] for p in lane]
+        x_vals = [p[0] for p in lane]
 
-            try:
-                coef = np.polyfit(y_vals, x_vals, degree)
+        degree = 2 if len(lane) > self.slices * percentage_for_first_degree else 1
 
-                # dacă e grad 1, îl transformăm în grad 2: 0*y^2 + b*y + c
-                if degree == 1:
-                    coef = np.array([0, coef[0], coef[1]])
+        try:
+            coef = np.polyfit(y_vals, x_vals, degree)
 
-                # verificare coeficienți extremi (păstrăm logica ta)
-                if abs(coef[0]) > (self.extreme_coef_second_deg if degree == 2 else 100):
+            # sanity pe coeficienți (ca în original)
+            if degree == 2:
+                if abs(coef[0]) > self.extreme_coef_second_deg:
                     return None
+            else:
+                if abs(coef[0]) > self.extreme_coef_first_deg:
+                    return None
+                # convertim la grad 2: 0*y^2 + b*y + c
+                coef = np.array([0.0, coef[0], coef[1]], dtype=float)
 
-                return coef
-            except Exception as e:
-                #DEBUG
-                print("[FIT DEBUG] polyfit failed:", e)
+            return coef
+        except Exception as e:
+            print("[FIT DEBUG] polyfit failed:", e)
+            return None
 
-                return None
 
-        return None
+
+
+    def _x_at(self, coef, y):
+        return coef[0] * y * y + coef[1] * y + coef[2]
+
+    def _validate_and_smooth(self, left_coef, right_coef, left_pts, right_pts):
+        yb = self.bottom_row_index
+
+        trust_l = left_coef is not None
+        trust_r = right_coef is not None
+
+        width_bad = False
+
+        # 1) sanity lane width
+        if trust_l and trust_r:
+            lb = self._x_at(left_coef, yb)
+            rb = self._x_at(right_coef, yb)
+            w = rb - lb
+
+            width_bad = not (
+                        self.expected_lane_width_px * self.width_tol_low <= w <= self.expected_lane_width_px * self.width_tol_high)
+
+            # DEBUG
+            print(f"[LANE] trustL={trust_l} trustR={trust_r} w={w:.1f} exp={self.expected_lane_width_px:.1f}")
+
+            if width_bad:
+                # păstrează banda cu mai multe puncte
+                if len(left_pts) >= len(right_pts):
+                    trust_r = False
+                    right_coef = None
+                else:
+                    trust_l = False
+                    left_coef = None
+
+        # 2) jump check
+        if trust_l and self.prev_left_coef is not None:
+            prev = self._x_at(self.prev_left_coef, yb)
+            cur = self._x_at(left_coef, yb)
+            if abs(cur - prev) > self.max_jump_px:
+                trust_l = False
+                left_coef = None
+
+        if trust_r and self.prev_right_coef is not None:
+            prev = self._x_at(self.prev_right_coef, yb)
+            cur = self._x_at(right_coef, yb)
+            if abs(cur - prev) > self.max_jump_px:
+                trust_r = False
+                right_coef = None
+
+        # update miss counters
+        self.miss_left = 0 if trust_l else self.miss_left + 1
+        self.miss_right = 0 if trust_r else self.miss_right + 1
+
+        # 3) fallback DOAR dacă NU e width_bad și doar câteva frame-uri
+        if (not width_bad) and (not trust_l) and (self.prev_left_coef is not None) and (
+                self.miss_left <= self.max_fallback_frames):
+            left_coef = self.prev_left_coef
+            trust_l = True
+
+        if (not width_bad) and (not trust_r) and (self.prev_right_coef is not None) and (
+                self.miss_right <= self.max_fallback_frames):
+            right_coef = self.prev_right_coef
+            trust_r = True
+
+        # update memorie
+        if left_coef is not None:
+            self.prev_left_coef = left_coef
+        if right_coef is not None:
+            self.prev_right_coef = right_coef
+
+        return left_coef, right_coef, trust_l, trust_r
+
 
     def visualize_lane(self, coefs, frame, color):
         """Desenează banda pe imagine folosind ecuația x = ay^2 + by + c"""
@@ -253,29 +344,54 @@ class LaneDetection:
                 points_dict[best_p_idx]["lane_index"] = lane_idx
 
     def choose_correct_lanes(self, lanes):
-        left, right = [], []
-        # Filtrare benzi scurte
+        # păstrează doar lane-uri suficient de lungi
         lanes = [lane for lane in lanes if len(lane) >= self.min_peaks_for_lane]
+        if not lanes:
+            return [], []
 
-        center = self.width / 2
+        center = self.width / 2.0
+        expected_w = self.expected_lane_width_px
+
+        left_candidates = []
+        right_candidates = []
 
         for lane in lanes:
-            length = len(lane)
-            # Luăm coordonata X a primului punct (cel mai de jos)
-            base_x = lane[0][0]
-
+            base_x = lane[0][0]  # punctul cel mai de jos
             if base_x <= center:
-                # Stânga: Vrem banda cea mai din dreapta a jumătății stângi (cea mai apropiată de centru)
-                # Sau cea mai lungă. Aici simplificăm: cea mai lungă.
-                if not left or length > len(left):
-                    left = lane
+                left_candidates.append(lane)
             else:
-                # Dreapta: Vrem banda cea mai din stânga a jumătății drepte
-                if not right:
-                    right = lane
-                elif length > len(right) * 0.8 and base_x < right[0][0]:
-                    right = lane
-        return left, right
+                right_candidates.append(lane)
+
+        # dacă nu am candidați pe una din părți, fallback simplu
+        if not left_candidates and not right_candidates:
+            return [], []
+        if not left_candidates:
+            # ia right cel mai aproape de poziția așteptată
+            right = min(right_candidates, key=lambda ln: abs(ln[0][0] - (center + expected_w / 2)))
+            return [], right
+        if not right_candidates:
+            left = min(left_candidates, key=lambda ln: abs(ln[0][0] - (center - expected_w / 2)))
+            return left, []
+
+        # alege perechea (L,R) cu width cel mai aproape de expected
+        best_L, best_R = None, None
+        best_score = 1e18
+
+        for L in left_candidates:
+            xL = L[0][0]
+            for R in right_candidates:
+                xR = R[0][0]
+                w = xR - xL
+                if w <= 0:
+                    continue
+
+                score = abs(w - expected_w) + 0.2 * abs((xL + xR) / 2 - center)
+                if score < best_score:
+                    best_score = score
+                    best_L, best_R = L, R
+
+        return best_L if best_L is not None else [], best_R if best_R is not None else []
+
 
     def visualize_all_peaks(self, frame, peaks):
         for peak in peaks:
