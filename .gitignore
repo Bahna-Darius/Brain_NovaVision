@@ -9,6 +9,7 @@ src/dashboard/frontend/src/app/webSocket/web-socket.service.ts
 src/algorithms/TrafficSigns/models/tsd_best.pt
 model
 src/data
+src/algorithms/TrafficSignsServer/remote_sign_config.py
 
 # ======================
 # Python
