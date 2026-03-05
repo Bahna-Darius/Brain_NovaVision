@@ -72,6 +72,7 @@ from src.control.CommandShaper.processCommandShaper import processCommandShaper
 from src.control.SafetyGuard.processSafetyGuard import processSafetyGuard
 from src.algorithms.Perception.processPerception import processPerception
 from src.control.ControlUnit.processControlUnit import processControlUnit
+from src.algorithms.TrafficSignsServer.processTrafficSignClient import processTrafficSignClient
 
 ### Laptop  fake module for raspberry ###
 from unittest.mock import MagicMock
@@ -164,10 +165,10 @@ serial_handler_ready = Event()
 processSerialHandler = processSerialHandler(queueList, logging, serial_handler_ready, dashboard_ready, debugging = True)
 
 # Initializing Command Shaper By NovaVision 22.01.2026##########################################
-processCommandShaperInst = processCommandShaper(queueList, logging, debugging=True)
+processCommandShaperInst = processCommandShaper(queueList, logging, debugging=False)
 
 # Initializing Safety Guard By NovaVision 23.01.2026 ###########################################
-processSafetyGuardInst = processSafetyGuard(queueList, logging, debugging=True)
+processSafetyGuardInst = processSafetyGuard(queueList, logging, debugging=False)
 
 ################ NovaVision 26.01.2026 ###############
 # Context:
@@ -178,12 +179,15 @@ perception_ready = Event()
 processPerceptionInst = processPerception(queueList, logging, perception_ready, debugging=True)
 
 control_unit_ready = Event()
-processControlUnitInst = processControlUnit(queueList, logging, control_unit_ready, debugging=True)
+processControlUnitInst = processControlUnit(queueList, logging, control_unit_ready, debugging=False)
+
+traffic_sign_client_ready = Event()
+processTrafficSignClientInst = processTrafficSignClient(queueList, logging, traffic_sign_client_ready, debugging=True)
 
 # Adding all processes to the list
-allProcesses.extend([processCamera, processSemaphore, processTrafficCom, processSerialHandler, processDashboard, processPerceptionInst, processControlUnitInst])
+allProcesses.extend([processCamera, processSemaphore, processTrafficCom, processSerialHandler, processDashboard, processPerceptionInst, processTrafficSignClientInst, processControlUnitInst])
 
-allEvents.extend([camera_ready, semaphore_ready, traffic_com_ready, serial_handler_ready, dashboard_ready, perception_ready, control_unit_ready])
+allEvents.extend([camera_ready, semaphore_ready, traffic_com_ready, serial_handler_ready, dashboard_ready, perception_ready, traffic_sign_client_ready, control_unit_ready])
 
 # Start order: Perception first, then Safety, then Shaper (as you intended)
 allProcesses.insert(1, processCommandShaperInst)  ### New process 22.01.2026

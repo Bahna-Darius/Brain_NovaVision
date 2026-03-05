@@ -63,7 +63,10 @@ class MessageConverter:
         "imu": [["activate"], [1], [False]],
         "vcd": [["speed", "steer", "time"], [3, 3, 3], [False]],
         "vcdCalib": [["speed", "steer", "time"], [3, 3, 3], [False]],
-        "kl": [["mode"], [2], [False]]
+        "kl": [["mode"], [2], [False]],
+        ##### NovaVision #####
+        "park":   [["enable"], [1], [False]],
+        "usFovr": [["enable"], [1], [False]]
     }
     """ The 'commands' attribute is a dictionary, which contains key word and the acceptable format for each action type. """
 

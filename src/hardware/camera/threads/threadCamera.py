@@ -34,7 +34,8 @@ import time
 import os
 
 from src.utils.messages.allMessages import (
-    serialCamera,
+    mainCamera,
+    serialCameraRaw,
     Recording,
     Record,
     Brightness,
@@ -45,7 +46,6 @@ from src.utils.messages.messageHandlerSubscriber import messageHandlerSubscriber
 from src.templates.threadwithstop import ThreadWithStop
 from src.utils.messages.allMessages import StateChange
 from src.statemachine.systemMode import SystemMode
-from src.utils.messages.allMessages import serialCameraRaw
 
 
 class threadCamera(ThreadWithStop):
@@ -71,13 +71,25 @@ class threadCamera(ThreadWithStop):
 
         self.dashboard_stream_enabled = True
         self.perception_stream_enabled = True
-        self.dashboard_stream_size = (1024, 576)
+        self.yolo_stream_size = (1280, 720)
         self.perception_stream_size = (512, 270)
         self.record_stream_size = (1280, 720)
 
+        self.frame_rate = 30              # lane camera cadence
+        self._cam_tick = 0
+
+        self.YOLO_EVERY_N = 6             # 30 / 6 = 5 FPS for YOLO
+        self.MAIN_JPEG_QUALITY = 45       # lighter than 65
+        self.main_encode_param = [int(cv2.IMWRITE_JPEG_QUALITY), self.MAIN_JPEG_QUALITY]
+
         self.recordingSender = messageHandlerSender(self.queuesList, Recording)
-        self.serialCameraSender = messageHandlerSender(self.queuesList, serialCamera)
+        self.mainCameraSender = messageHandlerSender(self.queuesList, mainCamera)
         self.serialCameraRawSender = messageHandlerSender(self.queuesList, serialCameraRaw)
+
+        # frame count
+        self._cam_fps_window_start = time.time()
+        self._cam_fps_count = 0
+
 
         ################ NovaVision 26.01.2026 ###############
         # NEW ELEMENT:
@@ -91,7 +103,7 @@ class threadCamera(ThreadWithStop):
         # - Controlled JPEG quality (stable bandwidth)
         # - Matches your newer camera thread behavior
         #####################################################
-        self.dashboard_encode_param = [int(cv2.IMWRITE_JPEG_QUALITY), 65]
+        # self.dashboard_encode_param = [int(cv2.IMWRITE_JPEG_QUALITY), 65]
         self.perception_encode_param = [int(cv2.IMWRITE_JPEG_QUALITY), 55]
 
         self.subscribe()
@@ -158,43 +170,45 @@ class threadCamera(ThreadWithStop):
             print(f"\033[1;97m[ Camera ] :\033[0m \033[1;91mERROR\033[0m - {e}")
 
         try:
-            # Always capture lores (for perception)
-            now = time.time()
-            if now < self._next_frame_deadline:
-                time.sleep(min(0.005, self._next_frame_deadline - now))
-                return
-            self._next_frame_deadline = now + (1.0 / float(self.frame_rate))
+            self._cam_tick += 1
 
-            # Capture ONLY the low-resolution stream used for transport.
-            stream_request = self.camera.capture_array("lores")
+            # Always lane stream
 
-            # Capture main ONLY if recording is enabled.
-            main_request = None
-            if self.recording is True:
-                main_request = self.camera.capture_array("main")
-                self.video_writer.write(main_request)  # type: ignore
+            need_main = self.recording or ((self._cam_tick % self.YOLO_EVERY_N) == 0)
 
-            stream_request = cv2.cvtColor(stream_request, cv2.COLOR_YUV2BGR_I420)  # type: ignore
+            req = self.camera.capture_request()
+            try:
+                lores = req.make_array("lores")
+                # lores = cv2.cvtColor(lores, cv2.COLOR_RGB2BGR)
+                main = req.make_array("main") if need_main else None
+            finally:
+                req.release()
+
+            if self.recording and main is not None:
+                self.video_writer.write(main)
 
             if self._blocker.is_set():
                 return
 
-            if self.dashboard_stream_enabled:
-                ok_dash, dashboard_encoded_img = cv2.imencode(".jpg", stream_request,
-                                                              self.dashboard_encode_param)  # type: ignore
+            # Send YOLO stream less often
+            if self.dashboard_stream_enabled and main is not None:
+                ok_dash, dashboard_encoded_img = cv2.imencode(".jpg", main, self.main_encode_param)
                 if ok_dash:
-                    dashboard_encoded_image_data = base64.b64encode(dashboard_encoded_img).decode(
-                        "utf-8")  # type: ignore
-                    self.serialCameraSender.send(dashboard_encoded_image_data)
+                    dashboard_encoded_image_data = base64.b64encode(dashboard_encoded_img).decode("utf-8")
+                    self.mainCameraSender.send(dashboard_encoded_image_data)
 
+            # Send lane raw every loop
             if self.perception_stream_enabled:
-                perception_frame = cv2.resize(stream_request, self.perception_stream_size, interpolation=cv2.INTER_AREA)
-                ok_perc, perception_encoded_img = cv2.imencode(".jpg", perception_frame,
-                                                               self.perception_encode_param)  # type: ignore
-                if ok_perc:
-                    perception_encoded_image_data = base64.b64encode(perception_encoded_img).decode(
-                        "utf-8")  # type: ignore
-                    self.serialCameraRawSender.send(perception_encoded_image_data)
+                self.serialCameraRawSender.send(lores)
+                self._cam_fps_count += 1
+
+            now = time.time()
+            cam_window_dt = now - self._cam_fps_window_start
+            if cam_window_dt >= 1.0:
+                cam_fps = self._cam_fps_count / cam_window_dt if cam_window_dt > 0 else 0.0
+                print(f"[Camera] lane_publish_fps={cam_fps:.1f}")
+                self._cam_fps_window_start = now
+                self._cam_fps_count = 0
 
             # rate limit ca sa nu flood-uim gateway-ul
             period = 1.0 / self.frame_rate if self.frame_rate > 0 else 0.0
@@ -240,15 +254,16 @@ class threadCamera(ThreadWithStop):
                     f"\033[1;97m[ Camera Thread ] :\033[0m \033[1;91mERROR\033[0m - No camera detected. Camera functionality will be disabled.")
                 self.camera = None
                 return
-
+            
             self.camera = picamera2.Picamera2()
-            config = self.camera.create_preview_configuration(
-                buffer_count=1,
-                queue=False,
-                main={"format": "RGB888", "size": self.record_stream_size},
-                lores={"size": self.dashboard_stream_size},
-                encode="lores",
+            config = self.camera.create_video_configuration(   # use video config for FPS
+                buffer_count=4,
+                queue=True,
+                main={"format": "RGB888", "size": self.yolo_stream_size},
+                lores={"format": "RGB888", "size": self.perception_stream_size},
+                controls={"FrameDurationLimits": (33333, 33333)},  # ~30 FPS
             )
+
             self.camera.configure(config)  # type: ignore
             self.camera.start()
             print(f"\033[1;97m[ Camera Thread ] :\033[0m \033[1;92mINFO\033[0m - Camera initialized successfully")

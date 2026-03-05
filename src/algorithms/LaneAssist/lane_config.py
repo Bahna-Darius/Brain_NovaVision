@@ -11,7 +11,7 @@ class LaneConfig:
 
     # Perspective parameters (Bird's Eye View)
     # Scădem puțin ca să ne concentrăm pe zona imediată din fața mașinii
-    BOTTOM_PERC = 0.45
+    BOTTOM_PERC = 0.47
 
     # Peak Detection Thresholds
     PEAKS_MIN_WIDTH = 2
@@ -20,7 +20,7 @@ class LaneConfig:
     # Pragul de alb (0-255).
     # Îl creștem la 160 pentru a elimina "fantom-ele" de pe podea.
     # Doar benzile albe strălucitoare vor trece.
-    SQUARE_PULSES_MIN_HEIGHT = 130
+    SQUARE_PULSES_MIN_HEIGHT = 170
 
     SQUARE_PULSES_PIX_DIF = 2
     SQUARE_PULSES_MIN_HEIGHT_DIF = 40
@@ -45,8 +45,8 @@ class LaneConfig:
     MIN_DUAL_LANE_CERTAINTY = 30
 
     # --- Lane Keeping ---
-    MAX_STEER = 23.0
-    MEDIAN_CONSTANT = 3
+    MAX_STEER = 25.0
+    MEDIAN_CONSTANT = 2
 
     # Weights parameters
     MU = 0.5

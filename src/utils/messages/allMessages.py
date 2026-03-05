@@ -25,7 +25,7 @@ class serialCameraRaw(Enum):
     Queue = "General"
     Owner = "threadCamera"
     msgID = 22
-    msgType = "str"
+    msgType = "ndarray"
 
 
 class Recording(Enum):
@@ -219,7 +219,6 @@ class RequestSteerLimits(Enum):
 
 
 ################################# From Nucleo ##################################
-# NOTE: these must remain EXACTLY as legacy BFMC expects.
 class BatteryLvl(Enum):
     Queue = "General"
     Owner = "threadRead"
@@ -387,27 +386,22 @@ class DesiredSpeed(Enum):
     msgID = 104
     msgType = "int"
 
-
 class DesiredSteer(Enum):
     Queue = "General"
     Owner = "threadControlUnit"
     msgID = 105
     msgType = "int"
 
-
-################ NovaVision 26.01.2026 ###############
-# Context:
-# - CommandShaper outputs shaped commands for SerialHandler.
-#####################################################
-class ShapedSpeedMotor(Enum):
+######### HC-SR04 sensor override and parking enable #########
+class ParkingEnable(Enum):
     Queue = "General"
-    Owner = "threadCommandShaper"
-    msgID = 106
+    Owner = "Brain"
+    msgID = 200
     msgType = "int"
 
-
-class ShapedSteerMotor(Enum):
+class USFrontOverride(Enum):
     Queue = "General"
-    Owner = "threadCommandShaper"
-    msgID = 107
+    Owner = "Brain"
+    msgID = 201
     msgType = "int"
+

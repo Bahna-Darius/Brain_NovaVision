@@ -61,9 +61,6 @@ class threadCommandShaper(threading.Thread):
         self._last_sent_speed = None
         self._last_sent_steer = None
 
-        #Keep alive
-        self._last_keepalive = 0.0
-
         # ---------------- Subscribers ----------------
 
         # AUTO inputs
@@ -169,11 +166,8 @@ class threadCommandShaper(threading.Thread):
 
             # Publish (changed OR keepalive)
             changed = (self.out_speed != self._last_sent_speed) or (self.out_steer != self._last_sent_steer)
-            KEEPALIVE_S = 0.25
-            now = time.time()
-            keepalive = (now - self._last_keepalive) >= KEEPALIVE_S
 
-            if changed or keepalive:
+            if changed:
                 self.speedSender.send(str(self.out_speed))
                 self.steerSender.send(str(self.out_steer))
                 self._last_sent_speed = self.out_speed
@@ -183,3 +177,4 @@ class threadCommandShaper(threading.Thread):
             # Timing
             elapsed = time.time() - start
             time.sleep(max(0.0, period - elapsed))
+

@@ -17,8 +17,7 @@ from src.control.SafetyGuard.safety_guard_config import SafetyGuardConfig as CFG
 
 ################ NovaVision 26.01.2026 ###############
 # Context:
-# - Updated SafetyGuard to consume PerceptionContext (fused output) instead of LaneKeeping.
-# - This enforces the pipeline: Perception -> SafetyGuard -> CommandShaper (override) -> Actuators.
+# - Updated SafetyGuard to consume PerceptionContext (fused output) instead of LaneKeeping
 # - SafetyGuard now evaluates lane freshness via ctx["lane"]["timestamp"] and confidence/status.
 #####################################################
 
@@ -32,23 +31,16 @@ class threadSafetyGuard(threading.Thread):
         # ✅ NovaVision Debugger flag
         self.debugger = bool(debugging)
 
-        self.ctxSub = messageHandlerSubscriber(
-            self.queueList, PerceptionContext, "lastOnly", True
-        )
-        self.stateSub = messageHandlerSubscriber(
-            self.queueList, StateChange, "lastOnly", True
-        )
+        self.ctxSub = messageHandlerSubscriber(self.queueList, PerceptionContext, "lastOnly", True)
+        self.stateSub = messageHandlerSubscriber(self.queueList, StateChange, "lastOnly", True)
 
-        self.sender = messageHandlerSender(
-            self.queueList, SafetyOverride
-        )
+        self.sender = messageHandlerSender(self.queueList, SafetyOverride)
 
         self.current_mode = "MANUAL"
 
         self.last_lane_time = time.time()
         self.last_lane_conf = 0.0
         self.last_lane_status = "IDLE"
-        self.last_stop_time = 0.0
 
 
     def run(self):
@@ -68,10 +60,6 @@ class threadSafetyGuard(threading.Thread):
                     self.last_lane_conf = float(lane.get("confidence", 0.0))
                     self.last_lane_status = str(lane.get("status", "IDLE"))
 
-                ts = ctx.get("traffic_signs")
-                if isinstance(ts, dict) and bool(ts.get("stop_sign", False)):
-                    self.last_stop_time = time.time()
-
             if self.current_mode == "AUTO":
                 self._evaluate_safety()
 
@@ -82,27 +70,12 @@ class threadSafetyGuard(threading.Thread):
 
         # ---- Lane timeout (Perception not providing lane updates) ----
         if now - self.last_lane_time > CFG.LANE_TIMEOUT_S:
-            self._send_override(
-                stop=True,
-                reason="Perception lane timeout",
-            )
+            self._send_override(stop=True,reason="Perception lane timeout")
             return
-        
-        # ---- STOP SIGN handling ----
-        if now - self.last_stop_time < CFG.STOP_SIGN_HOLD_S:
-            self._send_override(
-                stop=True,
-                reason="Stop sign detected",
-            )
-            return
-
 
         # ---- Lane unhealthy (optional safety escalation) ----
         if self.last_lane_status in ("CRASH", "NO_DETECTION") or self.last_lane_conf <= 0.0:
-            self._send_override(
-                stop=True,
-                reason=f"Lane unhealthy ({self.last_lane_status})",
-            )
+            self._send_override( stop=True,reason=f"Lane unhealthy ({self.last_lane_status})",)
             return
 
         # ---- Normal limits ----
@@ -125,7 +98,10 @@ class threadSafetyGuard(threading.Thread):
         # Context:
         # - Debug print to confirm safety override is being produced.
         #####################################################
-        if getattr(self, "debugger", False):
-            print(f"[SafetyGuard] stop={msg['stop']} max_speed={msg['max_speed']} max_steer={msg['max_steer']} reason={msg['reason']}")
+        if self.debugger:
+            print(
+                f"[SafetyGuard] stop={msg['stop']} max_speed={msg['max_speed']} "
+                f"max_steer={msg['max_steer']} reason={msg['reason']}"
+            )
 
         self.sender.send(msg)
