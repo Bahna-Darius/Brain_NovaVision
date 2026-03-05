@@ -147,21 +147,37 @@ class threadControlUnit(threading.Thread):
         if not isinstance(signs, dict):
             return
 
-        stop_near = self._is_sign_near(signs, {"stop", "stop_sign"}, CFG.STOP_NEAR_AREA_RATIO)
+        stop_near = self._is_sign_near(
+            signs,
+            {"stop", "stop_sign"},
+            CFG.STOP_NEAR_AREA_RATIO
+        )
         if stop_near and now >= self.stop_cooldown_until and now >= self.stop_until:
             self.stop_until = now + CFG.STOP_HOLD_S
             self.stop_cooldown_until = self.stop_until + CFG.STOP_COOLDOWN_S
 
-        crosswalk_seen = self._is_sign_present(signs, {"crosswalk", "pedestrian_crossing", "cross_walk"}, CFG.CROSSWALK_MIN_AREA_RATIO)
-        if crosswalk_seen:
+        crosswalk_near = self._is_sign_near(
+            signs,
+            {"crosswalk", "pedestrian_crossing", "cross_walk"},
+            CFG.CROSSWALK_MIN_AREA_RATIO
+        )
+        if crosswalk_near:
             self.crosswalk_until = max(self.crosswalk_until, now + CFG.CROSSWALK_HOLD_S)
 
-        hwy_entry_near = self._is_sign_near(signs, {"highway_entry", "highway_entrance", "motorway_entry", "motorway_entrance"}, CFG.HIGHWAY_ENTRY_NEAR_AREA_RATIO)
+        hwy_entry_near = self._is_sign_near(
+            signs,
+            {"highway_entry", "highway_entrance", "motorway_entry", "motorway_entrance"},
+            CFG.HIGHWAY_ENTRY_NEAR_AREA_RATIO
+        )
         if hwy_entry_near and now >= self.highway_entry_cooldown_until:
             self.cruise_mode = "HIGHWAY"
             self.highway_entry_cooldown_until = now + CFG.HIGHWAY_SIGN_COOLDOWN_S
 
-        hwy_exit_near = self._is_sign_near(signs, {"highway_exit", "motorway_exit", "highway_end", "motorway_end"}, CFG.HIGHWAY_EXIT_NEAR_AREA_RATIO)
+        hwy_exit_near = self._is_sign_near(
+            signs,
+            {"highway_exit", "motorway_exit", "highway_end", "motorway_end"},
+            CFG.HIGHWAY_EXIT_NEAR_AREA_RATIO
+        )
         if hwy_exit_near and now >= self.highway_exit_cooldown_until:
             self.cruise_mode = "CITY"
             self.highway_exit_cooldown_until = now + CFG.HIGHWAY_SIGN_COOLDOWN_S
