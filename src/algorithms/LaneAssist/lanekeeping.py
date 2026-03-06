@@ -44,7 +44,7 @@ class LaneKeeping:
 
     def lane_keeping(self, lanes_detection):
         if lanes_detection is None:
-            return self.angle, None
+            return self.angle, None, None
 
         frame = lanes_detection["frame"]
         left_coef = lanes_detection["left_coef"]
@@ -57,20 +57,24 @@ class LaneKeeping:
         left = left_coef if trust_l else None
         right = right_coef if trust_r else None
 
+        preview = None
+
         try:
-            self.angle, error, frame = self.pid_controller(left, right, frame)
+            self.angle, error, frame, preview = self.pid_controller(left, right, frame)
             self.fix_angle()
             self.angle = max(min(self.max_lk_steer, self.angle), -self.max_lk_steer)
         except Exception as e:
             print(f"[LaneKeeping] Error in calculation: {e}")
             self.angle = 0.0
+            preview = None
 
-        return self.angle, frame
+        return self.angle, frame, preview
 
     def pid_controller(self, left, right, frame):
         if left is None and right is None:
             angle = self.last_angle
             error = 0
+            preview = None
         else:
             desired_lane = self.desired_lane(left, right)
 
@@ -78,6 +82,7 @@ class LaneKeeping:
                 self.visualize_desire_lane(frame, desired_lane)
 
             error = self.get_error(desired_lane)
+            preview = self.get_preview_data(desired_lane)
 
             # Calcul unghi simplificat și sigur
             look_ahead_dist = self.height * 0.5
@@ -87,7 +92,7 @@ class LaneKeeping:
             angle = angle * 1.2  # Gain
 
         self.last_angle = angle
-        return angle, error, frame
+        return angle, error, frame, preview
 
     def desired_lane(self, left_fit, right_fit):
         desire_lane = np.zeros_like(self.plot_y)
@@ -107,6 +112,66 @@ class LaneKeeping:
             desire_lane = l_vals + (width_diff * 2)
 
         return desire_lane
+
+    def get_preview_data(self, desired):
+        if desired is None or len(desired) < 6:
+            return None
+
+        try:
+            n = len(desired) - 1
+
+            # Preview points from near car to farther ahead.
+            idx_near = max(0, min(n, int(0.15 * n)))
+            idx_mid = max(0, min(n, int(0.45 * n)))
+            idx_far = max(0, min(n, int(0.75 * n)))
+
+            x_near = float(desired[idx_near])
+            x_mid = float(desired[idx_mid])
+            x_far = float(desired[idx_far])
+
+            y_near = float(self.plot_y[idx_near])
+            y_mid = float(self.plot_y[idx_mid])
+            y_far = float(self.plot_y[idx_far])
+
+            center = self.width / 2.0
+
+            near_error = x_near - center
+            mid_error = x_mid - center
+            far_error = x_far - center
+
+            dy_near = abs(y_near - y_mid)
+            dy_far = abs(y_mid - y_far)
+
+            if dy_near < 1.0:
+                dy_near = 1.0
+            if dy_far < 1.0:
+                dy_far = 1.0
+
+            heading_near_deg = math.degrees(math.atan2(x_mid - x_near, dy_near))
+            heading_far_deg = math.degrees(math.atan2(x_far - x_mid, dy_far))
+            heading_delta_deg = heading_far_deg - heading_near_deg
+
+            curvature_score = abs(far_error - near_error) + (2.0 * abs(heading_delta_deg))
+
+            if far_error > near_error + 5.0:
+                turn_direction = "RIGHT"
+            elif far_error < near_error - 5.0:
+                turn_direction = "LEFT"
+            else:
+                turn_direction = "STRAIGHT"
+
+            return {
+                "near_error_px": float(near_error),
+                "mid_error_px": float(mid_error),
+                "far_error_px": float(far_error),
+                "heading_near_deg": float(heading_near_deg),
+                "heading_far_deg": float(heading_far_deg),
+                "heading_delta_deg": float(heading_delta_deg),
+                "curvature_score": float(curvature_score),
+                "turn_direction": str(turn_direction),
+            }
+        except Exception:
+            return None
 
     def get_error(self, desired):
         if len(desired) > 0:

@@ -48,6 +48,7 @@ class threadControlUnit(threading.Thread):
         self.in_curve = False
         self._curve_enter_count = 0
         self._curve_exit_count = 0
+        self._curve_score_ema = 0.0
 
         self.stop_until = 0.0
         self.stop_cooldown_until = 0.0
@@ -56,6 +57,12 @@ class threadControlUnit(threading.Thread):
         self.highway_exit_cooldown_until = 0.0
 
         self._last_reason = "BOOT"
+
+        # Keep last good AUTO command for short lane-confidence dropouts.
+        self._last_good_speed = 0
+        self._last_good_steer = 0
+        self._lane_bad_since = None
+        self._lane_hold_timeout_s = 0.35
 
     def run(self):
         period = 1.0 / CFG.LOOP_HZ
@@ -98,13 +105,10 @@ class threadControlUnit(threading.Thread):
         steer = max(-CFG.MAX_LANE_STEER, min(CFG.MAX_LANE_STEER, steer))
         conf = float(lane.get("confidence", 0.0))
         lane_status = str(lane.get("status", "UNKNOWN"))
+        preview = lane.get("preview")
 
         signs = self._get_fresh_signs(ctx, now)
         self._handle_sign_state(signs, now)
-
-        if conf < CFG.MIN_LANE_CONFIDENCE or lane_status in ("NO_DETECTION", "CRASH"):
-            self._publish(CFG.STOP_SPEED, 0, f"LANE_UNHEALTHY:{lane_status}")
-            return
 
         # Hard stop window.
         if now < self.stop_until:
@@ -117,15 +121,67 @@ class threadControlUnit(threading.Thread):
             self._publish(CFG.CROSSWALK_SPEED, cw_steer, "CROSSWALK")
             return
 
+        # Hold last good command briefly if lane confidence drops or lane crashes.
+        if conf < CFG.MIN_LANE_CONFIDENCE or lane_status in ("NO_DETECTION", "CRASH"):
+            if self._lane_bad_since is None:
+                self._lane_bad_since = now
+
+            bad_duration = now - self._lane_bad_since
+
+            if bad_duration < self._lane_hold_timeout_s and self._last_good_speed > 0:
+                self._publish(self._last_good_speed, self._last_good_steer, f"LANE_HOLD:{lane_status}")
+            else:
+                self._publish(CFG.STOP_SPEED, 0, f"LANE_UNHEALTHY:{lane_status}")
+            return
+
+        # Lane looks healthy again.
+        self._lane_bad_since = None
+
         base_speed = CFG.HIGHWAY_BASE_SPEED if self.cruise_mode == "HIGHWAY" else CFG.CITY_BASE_SPEED
         curve_min_speed = CFG.CURVE_MIN_SPEED_HIGHWAY if self.cruise_mode == "HIGHWAY" else CFG.CURVE_MIN_SPEED_CITY
 
-        self._update_curve_state(abs(steer))
+        curve_score = self._compute_curve_score(preview, steer)
+        self._update_curve_state(curve_score)
+
+        if self.debugging and self.logger is not None and (self._tick % 15 == 0):
+            near_err = None
+            far_err = None
+            heading_delta = None
+            curvature = None
+            turn_dir = None
+
+            if isinstance(preview, dict):
+                near_err = preview.get("near_error_px")
+                far_err = preview.get("far_error_px")
+                heading_delta = preview.get("heading_delta_deg")
+                curvature = preview.get("curvature_score")
+                turn_dir = preview.get("turn_direction")
+
+            self.logger.info(
+                f"[CurveDebug] "
+                f"steer_raw={raw_steer} steer_cmd={steer} "
+                f"near={near_err} far={far_err} "
+                f"heading_delta={heading_delta} curvature={curvature} "
+                f"turn={turn_dir} curve_score={curve_score:.3f} in_curve={self.in_curve}"
+            )
 
         if self.in_curve:
-            speed = self._compute_curve_speed(abs(steer), base_speed, curve_min_speed)
+            speed = self._compute_curve_speed(curve_score, base_speed, curve_min_speed)
+
+            if self.debugging and self.logger is not None and (self._tick % 15 == 0):
+                self.logger.info(
+                    f"[CurveAction] speed_cmd={speed} base_speed={base_speed} "
+                    f"curve_min_speed={curve_min_speed} reason=CURVE_{self.cruise_mode}"
+                )
+
             self._publish(speed, steer, f"CURVE_{self.cruise_mode}")
             return
+
+        if self.debugging and self.logger is not None and (self._tick % 15 == 0):
+            self.logger.info(
+                f"[CurveAction] speed_cmd={base_speed} base_speed={base_speed} "
+                f"curve_min_speed={curve_min_speed} reason=STRAIGHT_{self.cruise_mode}"
+            )
 
         self._publish(base_speed, steer, f"STRAIGHT_{self.cruise_mode}")
 
@@ -260,14 +316,62 @@ class threadControlUnit(threading.Thread):
                 return area / float(512.0 * 270.0)
             except Exception:
                 return 0.0
+
         return 0.0
 
     # ---------------------------------------------------------------------
     # Curve helpers
     # ---------------------------------------------------------------------
-    def _update_curve_state(self, abs_steer):
+    def _compute_curve_score(self, preview, steer):
+        steer_term = min(1.0, abs(float(steer)) / float(CFG.CURVE_FULL_STEER))
+
+        if not isinstance(preview, dict):
+            score = steer_term
+            self._curve_score_ema = (
+                (CFG.CURVE_SCORE_ALPHA * score) +
+                ((1.0 - CFG.CURVE_SCORE_ALPHA) * self._curve_score_ema)
+            )
+            return self._curve_score_ema
+
+        try:
+            near_err = abs(float(preview.get("near_error_px", 0.0)))
+            far_err = abs(float(preview.get("far_error_px", 0.0)))
+            heading_delta = abs(float(preview.get("heading_delta_deg", 0.0)))
+            curvature_score = abs(float(preview.get("curvature_score", 0.0)))
+
+            # Curve anticipation: far path bends before near path does.
+            anticipation = max(0.0, far_err - near_err)
+
+            far_term = min(1.0, far_err / float(CFG.PREVIEW_FAR_ERR_FULL_PX))
+            anticipation_term = min(1.0, anticipation / float(CFG.PREVIEW_ANTICIPATION_FULL_PX))
+            heading_term = min(1.0, heading_delta / float(CFG.PREVIEW_HEADING_DELTA_FULL_DEG))
+            curvature_term = min(1.0, curvature_score / float(CFG.PREVIEW_CURVATURE_FULL_SCALE))
+
+            score = (
+                0.30 * far_term +
+                0.30 * anticipation_term +
+                0.20 * heading_term +
+                0.10 * curvature_term +
+                0.10 * steer_term
+            )
+
+            self._curve_score_ema = (
+                (CFG.CURVE_SCORE_ALPHA * score) +
+                ((1.0 - CFG.CURVE_SCORE_ALPHA) * self._curve_score_ema)
+            )
+            return self._curve_score_ema
+
+        except Exception:
+            score = steer_term
+            self._curve_score_ema = (
+                (CFG.CURVE_SCORE_ALPHA * score) +
+                ((1.0 - CFG.CURVE_SCORE_ALPHA) * self._curve_score_ema)
+            )
+            return self._curve_score_ema
+
+    def _update_curve_state(self, curve_score):
         if not self.in_curve:
-            if abs_steer >= CFG.CURVE_ENTER_STEER:
+            if curve_score >= CFG.CURVE_ENTER_SCORE:
                 self._curve_enter_count += 1
             else:
                 self._curve_enter_count = 0
@@ -278,8 +382,7 @@ class threadControlUnit(threading.Thread):
                 self._curve_exit_count = 0
             return
 
-        # Already in curve.
-        if abs_steer <= CFG.CURVE_EXIT_STEER:
+        if curve_score <= CFG.CURVE_EXIT_SCORE:
             self._curve_exit_count += 1
         else:
             self._curve_exit_count = 0
@@ -289,25 +392,30 @@ class threadControlUnit(threading.Thread):
             self._curve_exit_count = 0
             self._curve_enter_count = 0
 
-    def _compute_curve_speed(self, abs_steer, base_speed, min_speed):
-        if abs_steer <= CFG.CURVE_ENTER_STEER:
-            return int(base_speed)
+    def _compute_curve_speed(self, curve_score, base_speed, min_speed):
+        curve_score = max(0.0, min(1.0, float(curve_score)))
+        speed = float(base_speed) - (curve_score * float(base_speed - min_speed))
+        return int(round(speed))
 
-        span = max(1.0, float(CFG.CURVE_FULL_STEER - CFG.CURVE_ENTER_STEER))
-        alpha = min(1.0, max(0.0, float(abs_steer - CFG.CURVE_ENTER_STEER) / span))
-        speed = float(base_speed) - alpha * float(base_speed - min_speed)
-        return int(round(max(min_speed, min(base_speed, speed))))
-
+    # ---------------------------------------------------------------------
+    # Output
     # ---------------------------------------------------------------------
     def _publish(self, speed, steer, reason):
         speed = int(speed)
         steer = int(steer)
+
         self.speedSender.send(speed)
         self.steerSender.send(steer)
 
-        if self.debugging and (reason != self._last_reason or self._tick % 20 == 0):
-            print(
-                f"[ControlUnit] tick={self._tick} mode={self.current_mode} cruise={self.cruise_mode} "
-                f"curve={self.in_curve} speed={speed} steer={steer} reason={reason}"
+        # Save last good command so brief lane dropouts do not force an instant stop.
+        if speed > 0 and not str(reason).startswith("LANE_"):
+            self._last_good_speed = speed
+            self._last_good_steer = steer
+
+        self._last_reason = str(reason)
+
+        if self.debugging and self.logger is not None and (self._tick % 10 == 0):
+            self.logger.info(
+                f"[ControlUnit] mode={self.current_mode} cruise={self.cruise_mode} "
+                f"in_curve={self.in_curve} speed={speed} steer={steer} reason={reason}"
             )
-        self._last_reason = reason

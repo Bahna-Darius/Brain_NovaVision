@@ -179,7 +179,7 @@ perception_ready = Event()
 processPerceptionInst = processPerception(queueList, logging, perception_ready, debugging=True)
 
 control_unit_ready = Event()
-processControlUnitInst = processControlUnit(queueList, logging, control_unit_ready, debugging=False)
+processControlUnitInst = processControlUnit(queueList, logging, control_unit_ready, debugging=True)
 
 traffic_sign_client_ready = Event()
 processTrafficSignClientInst = processTrafficSignClient(queueList, logging, traffic_sign_client_ready, debugging=True)

@@ -13,7 +13,7 @@ class LaneConfig:
 
     # Perspective parameters (Bird's Eye View)
     # Scădem puțin ca să ne concentrăm pe zona imediată din fața mașinii
-    BOTTOM_PERC = 0.47
+    BOTTOM_PERC = 0.40
 
     # Peak Detection Thresholds
     PEAKS_MIN_WIDTH = 2

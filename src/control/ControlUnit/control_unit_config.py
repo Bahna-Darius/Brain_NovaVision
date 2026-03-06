@@ -8,13 +8,25 @@ class ControlUnitConfig:
     # ===== Curve speed policy =====
     # Lane steer is scaled by x10 before being sent downstream.
     MAX_LANE_STEER = 250
-    CURVE_ENTER_STEER = 60
-    CURVE_EXIT_STEER = 30
-    CURVE_ENTER_CONFIRM_FRAMES = 3
-    CURVE_EXIT_CONFIRM_FRAMES = 4
+
+    # Curve state hysteresis.
+    CURVE_ENTER_CONFIRM_FRAMES = 1
+    CURVE_EXIT_CONFIRM_FRAMES = 6
+
+    # Speed floor while cornering.
     CURVE_MIN_SPEED_CITY = 100
-    CURVE_MIN_SPEED_HIGHWAY = 200
+    CURVE_MIN_SPEED_HIGHWAY = 120
     CURVE_FULL_STEER = 250
+
+    # Preview-based curve planning.
+    CURVE_ENTER_SCORE = 0.12
+    CURVE_EXIT_SCORE = 0.15
+    CURVE_SCORE_ALPHA = 0.45
+
+    PREVIEW_FAR_ERR_FULL_PX = 70.0
+    PREVIEW_ANTICIPATION_FULL_PX = 40.0
+    PREVIEW_HEADING_DELTA_FULL_DEG = 16.0
+    PREVIEW_CURVATURE_FULL_SCALE = 90.0
 
     # ===== Lane confidence =====
     MIN_LANE_CONFIDENCE = 0.30

@@ -148,7 +148,7 @@ class LaneDetection:
                         self.expected_lane_width_px * self.width_tol_low <= w <= self.expected_lane_width_px * self.width_tol_high)
 
             # DEBUG
-            print(f"[LANE] trustL={trust_l} trustR={trust_r} w={w:.1f} exp={self.expected_lane_width_px:.1f}")
+            # print(f"[LANE] trustL={trust_l} trustR={trust_r} w={w:.1f} exp={self.expected_lane_width_px:.1f}")
 
             if width_bad:
                 # păstrează banda cu mai multe puncte

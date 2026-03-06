@@ -131,10 +131,11 @@ class threadPerception(ThreadWithStop):
                     "trust_right": False,
                     "status": "NO_DETECTION",
                     "timestamp": time.time(),
+                    "preview": None,
                 }
                 return lane, frame_bgr, (time.time() - t0) * 1000.0
 
-            steer_angle, debug_frame = self.lane_keeper.lane_keeping(lane_results)
+            steer_angle, debug_frame, preview = self.lane_keeper.lane_keeping(lane_results)
 
             trust_left = bool(lane_results.get("trust_left", False))
             trust_right = bool(lane_results.get("trust_right", False))
@@ -153,6 +154,7 @@ class threadPerception(ThreadWithStop):
                 "trust_right": trust_right,
                 "status": "ACTIVE",
                 "timestamp": time.time(),
+                "preview": preview,
             }
 
             if debug_frame is None:
@@ -171,6 +173,7 @@ class threadPerception(ThreadWithStop):
                 "trust_right": False,
                 "status": "CRASH",
                 "timestamp": time.time(),
+                "preview": None,
             }
             return lane, frame_bgr, (time.time() - t0) * 1000.0
 
