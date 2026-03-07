@@ -11,9 +11,12 @@ from src.utils.messages.allMessages import (
     StateChange,
     DesiredSpeed,
     DesiredSteer,
+    SpeedMotor,
+    SteerMotor,
 )
 
 from src.control.ControlUnit.control_unit_config import ControlUnitConfig as CFG
+from src.algorithms.ParkingSequence.parking_sequence import ParkingSequence
 
 
 class threadControlUnit(threading.Thread):
@@ -38,6 +41,10 @@ class threadControlUnit(threading.Thread):
 
         self.speedSender = messageHandlerSender(self.queueList, DesiredSpeed)
         self.steerSender = messageHandlerSender(self.queueList, DesiredSteer)
+        self.directSpeedSender = messageHandlerSender(self.queueList, SpeedMotor)
+        self.directSteerSender = messageHandlerSender(self.queueList, SteerMotor)
+
+        self._parking_direct_active = False
 
         self.current_mode = "MANUAL"
         self._tick = 0
@@ -63,6 +70,25 @@ class threadControlUnit(threading.Thread):
         self._last_good_steer = 0
         self._lane_bad_since = None
         self._lane_hold_timeout_s = 0.35
+        self.parking = ParkingSequence(
+            trigger_label=CFG.PARKING_SIGN_TRIGGER_LABEL,
+            trigger_confirm_frames=CFG.PARKING_TRIGGER_CONFIRM_FRAMES,
+            trigger_area_ratio=CFG.PARKING_TRIGGER_AREA_RATIO,
+            trigger_cooldown_s=CFG.PARKING_TRIGGER_COOLDOWN_S,
+            wheelbase_m=CFG.PARKING_WHEELBASE_M,
+            vehicle_width_m=CFG.PARKING_VEHICLE_WIDTH_M,
+            rear_overhang_m=CFG.PARKING_REAR_OVERHANG_M,
+            steering_angle_deg=CFG.PARKING_STEERING_ANGLE_DEG,
+            forward_offset_s=CFG.PARKING_FORWARD_OFFSET_S,
+            stop_before_reverse_s=CFG.PARKING_STOP_BEFORE_REVERSE_S,
+            reverse_speed=CFG.PARKING_REVERSE_SPEED,
+            forward_speed=CFG.PARKING_FORWARD_SPEED,
+            arc1_steer=CFG.PARKING_ARC1_STEER,
+            arc2_steer=CFG.PARKING_ARC2_STEER,
+            arc1_duration_s=CFG.PARKING_ARC1_DURATION_S,
+            arc2_duration_s=CFG.PARKING_ARC2_DURATION_S,
+            final_forward_duration_s=CFG.PARKING_FINAL_FORWARD_DURATION_S,
+        )
 
     def run(self):
         period = 1.0 / CFG.LOOP_HZ
@@ -109,6 +135,26 @@ class threadControlUnit(threading.Thread):
 
         signs = self._get_fresh_signs(ctx, now)
         self._handle_sign_state(signs, now)
+
+        # Parking sign trigger and parking sequence execution.
+        self.parking.update_trigger(signs, now)
+
+        if self.parking.armed and not self.parking.active and not self.parking.done:
+            self.parking.start(now)
+
+        if self.parking.active:
+            parking_cmd = self.parking.update(now)
+            self._publish(
+                parking_cmd["speed"],
+                parking_cmd["steer"],
+                f"PARKING:{parking_cmd['step']}"
+            )
+            return
+
+        if self.parking.done:
+            self._publish(CFG.STOP_SPEED, 0, "PARKING:DONE")
+            return
+    
 
         # Hard stop window.
         if now < self.stop_until:

@@ -22,7 +22,7 @@ class LaneConfig:
     # Pragul de alb (0-255).
     # Îl creștem la 160 pentru a elimina "fantom-ele" de pe podea.
     # Doar benzile albe strălucitoare vor trece.
-    SQUARE_PULSES_MIN_HEIGHT = 170
+    SQUARE_PULSES_MIN_HEIGHT = 190
 
     SQUARE_PULSES_PIX_DIF = 2
     SQUARE_PULSES_MIN_HEIGHT_DIF = 40
