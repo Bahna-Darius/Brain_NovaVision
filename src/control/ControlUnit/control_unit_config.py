@@ -18,9 +18,15 @@ class ControlUnitConfig:
     CURVE_MIN_SPEED_HIGHWAY = 120
     CURVE_FULL_STEER = 250
 
+    # ===== Highway steering safety =====
+    # Limit how aggressively the car can turn while in HIGHWAY cruise mode.
+    # Applied in ControlUnit so curve scoring + final output reflect the limit.
+    HIGHWAY_MAX_STEER = 140          # max |steer| allowed in highway mode
+    HIGHWAY_MAX_STEER_STEP = 40      # max delta per ControlUnit tick (LOOP_HZ)
+
     # Preview-based curve planning.
     CURVE_ENTER_SCORE = 0.12
-    CURVE_EXIT_SCORE = 0.15
+    CURVE_EXIT_SCORE = 0.12
     CURVE_SCORE_ALPHA = 0.45
 
     PREVIEW_FAR_ERR_FULL_PX = 70.0
@@ -29,7 +35,7 @@ class ControlUnitConfig:
     PREVIEW_CURVATURE_FULL_SCALE = 90.0
 
     # ===== Lane confidence =====
-    MIN_LANE_CONFIDENCE = 0.30
+    MIN_LANE_CONFIDENCE = 0.20
 
     # ===== Sign handling =====
     STOP_HOLD_S = 3.0
@@ -40,9 +46,9 @@ class ControlUnitConfig:
     HIGHWAY_ENTRY_NEAR_AREA_RATIO = 0.06
     HIGHWAY_EXIT_NEAR_AREA_RATIO = 0.06
 
-    CROSSWALK_HOLD_S = 3.2
+    CROSSWALK_HOLD_S = 2.5
     CROSSWALK_MIN_AREA_RATIO = 0.07
-    DISABLE_STEER_ON_CROSSWALK = False
+    DISABLE_STEER_ON_CROSSWALK = True
 
     # ===== Loop / freshness =====
     LOOP_HZ = 30
@@ -51,8 +57,8 @@ class ControlUnitConfig:
 
         # ===== Parking =====
     PARKING_SIGN_TRIGGER_LABEL = "parking_sign"
-    PARKING_TRIGGER_CONFIRM_FRAMES = 3
-    PARKING_TRIGGER_AREA_RATIO = 0.05
+    PARKING_TRIGGER_CONFIRM_FRAMES = 7
+    PARKING_TRIGGER_AREA_RATIO = 0.03
     PARKING_TRIGGER_COOLDOWN_S = 8.0
 
     # Paper-inspired geometry parameters for future upgrade

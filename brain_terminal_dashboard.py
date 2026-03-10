@@ -68,7 +68,37 @@ def fmt_float(v, digits=2):
         return f"{float(v):.{digits}f}"
     except Exception:
         return str(v)
+    
+def normalize_label(label: str) -> str:
+    return str(label).strip().lower().replace("-", "_").replace(" ", "_")
 
+
+def infer_sign_action(reason: str) -> str:
+    r = str(reason or "").strip().upper()
+
+    if not r:
+        return "—"
+
+    if "STOP_SIGN_HOLD" in r:
+        return "Stopping for stop sign"
+    if "CROSSWALK" in r:
+        return "Crosswalk slow/hold"
+    if "PARKING:" in r or "PARKING_DONE" in r:
+        return "Parking sequence"
+    if "HIGHWAY" in r:
+        return "Cruise mode change"
+    if "INTERSECTION:" in r:
+        return "Intersection navigation"
+    if "LANE_HOLD" in r:
+        return "Holding last lane cmd"
+    if "LANE_UNHEALTHY" in r:
+        return "Stopping, lane unhealthy"
+    if "CURVE_" in r:
+        return "Curve speed policy"
+    if "STRAIGHT_" in r:
+        return "Normal lane follow"
+
+    return r    
 
 # ----------------------------- regex patterns -----------------------------
 # Newer Perception format
@@ -124,6 +154,15 @@ RE_MAIN_PROC = re.compile(r"^\s*-\s*(.+?)\s+pid=(\d+)\s+alive=(True|False)")
 
 # Raw numeric spam: INFO:root:123 or INFO:root:-45
 RE_INFO_NUM = re.compile(r"^INFO:root:([-]?\d+(?:\.\d+)?)$")
+
+# Traffic sign label debug lines (supports a few common print styles)
+RE_TS_LABELS_1 = re.compile(
+    r"\[(?:TrafficSignClient|TrafficSigns|Signs)\].*?(?:labels|detected_signs|detected|signs)\s*=\s*(\[[^\]]*\])"
+)
+
+RE_TS_LABELS_2 = re.compile(
+    r"\[(?:TrafficSignClient|TrafficSigns|Signs)\].*?(?:label|detected_sign|sign)\s*=\s*([A-Za-z0-9_\- ]+)"
+)
 
 
 # ----------------------------- parsing -----------------------------
@@ -215,13 +254,7 @@ def parse_line(raw: str):
         set_signal("Perception.tick", tick, "Perception")
         set_signal("Lane.steer", steer, "Perception")
         set_signal("Lane.conf", conf, "Perception")
-        if tl_state is not None:
-            set_signal("TLight.state", tl_state, "Perception")
-        if tl_conf is not None:
-            set_signal("TLight.conf", tl_conf, "Perception")
-        return
 
-    # New ControlUnit
     m = RE_CONTROLUNIT_NEW.search(line)
     if m:
         mode, cruise, in_curve, spd, st, reason = m.groups()
@@ -231,6 +264,7 @@ def parse_line(raw: str):
         set_signal("Desired.speed", spd, "ControlUnit")
         set_signal("Desired.steer", st, "ControlUnit")
         set_signal("CU.reason", reason, "ControlUnit")
+        set_signal("TS.action", infer_sign_action(reason), "ControlUnit")
         return
 
     # Old ControlUnit
@@ -283,6 +317,28 @@ def parse_line(raw: str):
         set_signal("TS.infer_ms", fmt_float(infer_ms, 1), "TrafficSignClient")
         set_signal("TS.rtt_ms", fmt_float(rtt_ms, 1), "TrafficSignClient")
         return
+    
+    # Traffic sign labels from debug prints
+    m = RE_TS_LABELS_1.search(line)
+    if m:
+        try:
+            labels = ast.literal_eval(m.group(1))
+            if isinstance(labels, list):
+                labels = [normalize_label(x) for x in labels if str(x).strip()]
+                if labels:
+                    set_signal("TS.detected_sign", ", ".join(labels), "TrafficSignClient")
+                else:
+                    set_signal("TS.detected_sign", "none", "TrafficSignClient")
+                return
+        except Exception:
+            pass
+
+    m = RE_TS_LABELS_2.search(line)
+    if m:
+        label = normalize_label(m.group(1))
+        if label:
+            set_signal("TS.detected_sign", label, "TrafficSignClient")
+            return
 
     # CommandShaper
     m = RE_SHAPER.search(line)
@@ -392,8 +448,8 @@ def build_perception_table() -> Table:
         ("Perception.avg_decode_ms", "Decode ms"),
         ("Lane.steer", "Lane steer"),
         ("Lane.conf", "Lane conf"),
-        ("TLight.state", "Traffic light"),
-        ("TLight.conf", "TL conf"),
+        ("TS.detected_sign", "Detected sign"),
+        ("TS.action", "Car action"),
     ]:
         add_signal_row(t, key, label)
 

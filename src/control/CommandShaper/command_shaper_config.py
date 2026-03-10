@@ -8,12 +8,12 @@ class CommandShaperConfig:
     # ===== Speed limits =====
     MAX_SPEED = 500                 # forward
     MIN_SPEED = -500                # reverse (parking)
-    MAX_SPEED_STEP = 10             # max delta per cycle
+    MAX_SPEED_STEP = 10            # max delta per cycle
 
     # ===== Steering limits =====
     MAX_STEER = 250
     MIN_STEER = -250
-    MAX_STEER_STEP = 100
+    MAX_STEER_STEP = 250
 
     # ===== Default safe state =====
     SAFE_SPEED = 0

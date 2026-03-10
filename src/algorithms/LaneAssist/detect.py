@@ -56,6 +56,12 @@ class LaneDetection:
         self.square_pulses_min_height = LaneConfig.SQUARE_PULSES_MIN_HEIGHT
         self.minimum = self.square_pulses_min_height
 
+        #Last
+        self.prev_left_xb = None
+        self.prev_right_xb = None
+        self.lock_jump_px = 60   # cât permiți să sară o linie între frame-uri
+
+
     def lanes_detection(self, src):
         """Pipeline principal de detecție."""
         # 1. Găsire vârfuri (peaks)
@@ -344,7 +350,6 @@ class LaneDetection:
                 points_dict[best_p_idx]["lane_index"] = lane_idx
 
     def choose_correct_lanes(self, lanes):
-        # păstrează doar lane-uri suficient de lungi
         lanes = [lane for lane in lanes if len(lane) >= self.min_peaks_for_lane]
         if not lanes:
             return [], []

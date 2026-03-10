@@ -65,6 +65,9 @@ class threadControlUnit(threading.Thread):
 
         self._last_reason = "BOOT"
 
+        # For limiting steering aggressiveness on HIGHWAY.
+        self._last_sent_steer = 0
+
         # Keep last good AUTO command for short lane-confidence dropouts.
         self._last_good_speed = 0
         self._last_good_steer = 0
@@ -135,6 +138,10 @@ class threadControlUnit(threading.Thread):
 
         signs = self._get_fresh_signs(ctx, now)
         self._handle_sign_state(signs, now)
+
+        # Highway steering safety: limit how fast/strong we can turn at high speed.
+        # Applied after cruise_mode updates (highway_entry/exit) and before curve logic.
+        steer = self._apply_highway_steer_limits(steer)
 
         # Parking sign trigger and parking sequence execution.
         self.parking.update_trigger(signs, now)
@@ -230,6 +237,38 @@ class threadControlUnit(threading.Thread):
             )
 
         self._publish(base_speed, steer, f"STRAIGHT_{self.cruise_mode}")
+
+    # ---------------------------------------------------------------------
+    # Highway steering safety
+    # ---------------------------------------------------------------------
+    def _apply_highway_steer_limits(self, steer: int) -> int:
+        """Limit steering aggressiveness while in HIGHWAY cruise mode."""
+        try:
+            steer = int(steer)
+        except Exception:
+            return 0
+
+        # Only apply in highway cruise; parking sequence uses its own direct commands.
+        if self.cruise_mode != "HIGHWAY":
+            self._last_sent_steer = steer
+            return steer
+
+        # 1) Clamp magnitude.
+        max_mag = int(getattr(CFG, "HIGHWAY_MAX_STEER", CFG.MAX_LANE_STEER))
+        steer = max(-max_mag, min(max_mag, steer))
+
+        # 2) Clamp rate-of-change (slew) per ControlUnit tick.
+        max_step = int(getattr(CFG, "HIGHWAY_MAX_STEER_STEP", 0) or 0)
+        if max_step > 0:
+            prev = int(self._last_sent_steer)
+            delta = steer - prev
+            if delta > max_step:
+                steer = prev + max_step
+            elif delta < -max_step:
+                steer = prev - max_step
+
+        self._last_sent_steer = steer
+        return steer
 
     # ---------------------------------------------------------------------
     # Sign helpers
